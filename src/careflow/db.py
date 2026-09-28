@@ -11,7 +11,7 @@ from typing import Iterator
 
 from .errors import StorageFailure
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS staff (
     id TEXT PRIMARY KEY,
     clinic_id TEXT NOT NULL REFERENCES clinics(id),
     display_name TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('owner','clinician','nurse','coordinator','auditor')),
+    role TEXT NOT NULL CHECK(role IN ('owner','clinician','nurse','coordinator','auditor','quality_officer')),
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     created_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1
@@ -371,6 +371,45 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS audit_patient_sequence ON audit_events(patient_id,sequence);
 CREATE INDEX IF NOT EXISTS audit_aggregate ON audit_events(aggregate_type,aggregate_id,sequence);
+CREATE TABLE IF NOT EXISTS quality_aggregate_configs (
+    id TEXT PRIMARY KEY,
+    clinic_id TEXT NOT NULL REFERENCES clinics(id),
+    key TEXT NOT NULL,
+    min_cell_count INTEGER NOT NULL CHECK(min_cell_count>=2),
+    min_cell_delta INTEGER NOT NULL CHECK(min_cell_delta>=1),
+    followup_window_days INTEGER NOT NULL CHECK(followup_window_days>=1 AND followup_window_days<=365),
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    created_by TEXT NOT NULL REFERENCES staff(id),
+    created_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(clinic_id,key)
+);
+CREATE INDEX IF NOT EXISTS quality_configs_clinic ON quality_aggregate_configs(clinic_id,active);
+CREATE TABLE IF NOT EXISTS quality_snapshots (
+    id TEXT PRIMARY KEY,
+    clinic_id TEXT NOT NULL REFERENCES clinics(id),
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    period_granularity TEXT NOT NULL CHECK(period_granularity IN ('day','week','month','quarter')),
+    category TEXT NOT NULL CHECK(category IN ('aesthetic','weight')),
+    config_id TEXT NOT NULL REFERENCES quality_aggregate_configs(id),
+    config_fingerprint TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    followup_grace_days INTEGER NOT NULL,
+    head_sequence INTEGER NOT NULL,
+    audit_head TEXT NOT NULL,
+    inclusion_rules_json TEXT NOT NULL,
+    frozen_payload_json TEXT,
+    frozen_at TEXT,
+    exported_at TEXT,
+    created_by TEXT NOT NULL REFERENCES staff(id),
+    created_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(clinic_id,period_start,period_end,category,config_id)
+);
+CREATE INDEX IF NOT EXISTS quality_snapshots_clinic ON quality_snapshots(clinic_id,created_at);
+CREATE INDEX IF NOT EXISTS quality_snapshots_period ON quality_snapshots(clinic_id,period_start,period_end,category);
 """
 
 

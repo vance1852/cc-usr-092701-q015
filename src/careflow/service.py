@@ -37,11 +37,13 @@ class Careflow:
         from .exports import PatientExportService
         from .milestones import MilestoneService
         from .clinical_flags import ClinicalFlagService
+        from .quality import QualityAnalyticsService
         self.supplies = SupplyService(self.db, self.clock)
         self.reports = ReportService(self.db, self.clock)
         self.exports = PatientExportService(self.db, self.clock)
         self.milestones = MilestoneService(self.db, self.clock)
         self.clinical_flags = ClinicalFlagService(self.db, self.clock)
+        self.quality = QualityAnalyticsService(self.db, self.clock)
 
     def now(self) -> str:
         return timestamp(self.clock.now())
@@ -97,7 +99,7 @@ class Careflow:
     def create_staff(self, clinic_id: str, name: str, role: str, *, actor_id: str | None = None) -> dict[str, Any]:
         clinic_id = require_id(clinic_id, "诊所编号")
         name = text(name, "员工姓名", maximum=120)
-        role = choice(role, "岗位", {"owner", "clinician", "nurse", "coordinator", "auditor"})
+        role = choice(role, "岗位", {"owner", "clinician", "nurse", "coordinator", "auditor", "quality_officer"})
         staff_id = new_id("stf")
         now = self.now()
         with self.db.transaction() as connection:
@@ -271,7 +273,8 @@ class Careflow:
 
     def grant_consent(self, clinic_id: str, actor_id: str, patient_id: str, purpose: str,
                       revision: int, text_digest: str, *, expires_at: str | None = None) -> dict[str, Any]:
-        purpose = choice(purpose, "授权用途", {"clinical_care", "aesthetic_procedure", "weight_program", "followup_contact", "data_export"})
+        purpose = choice(purpose, "授权用途", {"clinical_care", "aesthetic_procedure", "weight_program",
+                                              "followup_contact", "data_export", "quality_aggregate"})
         if not isinstance(revision, int) or revision < 1:
             raise ValidationError("授权版本必须为正整数")
         if len(text_digest) != 64 or any(c not in "0123456789abcdef" for c in text_digest):

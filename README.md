@@ -32,7 +32,7 @@ PYTHONPATH=src python3 -m careflow initialize --database careflow.sqlite3 --clin
 PYTHONPATH=src python3 -m careflow.api --database careflow.sqlite3 --host 127.0.0.1 --port 8080
 ```
 
-服务以 JSON 提供诊所、患者、授权、评估、计划、预约、耗材追溯、随访、不良事件和运营汇总接口。`GET /health` 返回进程与数据库状态；其他路由的参数和返回结构见 `docs/api.md`。登录后使用短期 Bearer 凭据，诊所编号通过 `X-Clinic-ID` 提供。此服务不写访问日志中的请求路径或请求正文。
+服务以 JSON 提供诊所、患者、授权、评估、计划、预约、耗材追溯、随访、不良事件、运营汇总和质量委员会聚合分析接口。质量聚合分析仅对获准质量岗位开放，输出类别 × 时间段的去标识汇总，不返回患者级记录；低于门槛的单元与可经相邻筛选相减还原的小数量会被抑制，导出结果冻结后不受迟到更正影响（见 `docs/api.md` 的“质量委员会聚合分析”）。`GET /health` 返回进程与数据库状态；其他路由的参数和返回结构见 `docs/api.md`。登录后使用短期 Bearer 凭据，诊所编号通过 `X-Clinic-ID` 提供。此服务不写访问日志中的请求路径或请求正文。
 
 ## 数据库检查
 

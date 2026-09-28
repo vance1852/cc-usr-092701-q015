@@ -43,6 +43,29 @@
 
 `POST /patients/{patient_id}/export` 只在存在有效数据导出授权时返回明确选择的章节。导出字段采用白名单，联系方式密文、凭据和内部合并字段不会导出；相同幂等请求得到相同内容摘要。`GET /reports/daily`、`appointments`、`incidents` 和 `overdue-milestones` 仅返回运营汇总或经岗位授权的工作队列。
 
+## 质量委员会聚合分析
+
+质量分析只面向 `quality_officer`（仅 `quality:read`）与负责人（另有 `quality:manage`）。质量岗位不能读取任何患者级接口；所有结果都是项目类别 × 时间段的去标识汇总，不返回患者编号、医生编号或明细记录。
+
+- `GET /quality/rules` 返回纳入规则、空值原因、抑制原因与排除原因的代码说明。
+- `GET /quality/config` 查看当前抑制门槛；`POST /quality/config`（仅负责人）设置 `min_cell_count`、`min_cell_delta` 和 `followup_window_days`。最小单元人数必须至少为最小互补差的两倍。
+- `GET /quality/aggregates?granularity=month&start=2026-08-01&end=2026-08-31&category=weight&category=aesthetic` 按对齐的日/周/月/季度时间段计算。起止日期必须分别落在完整时间段边界上，一次最多 12 个月（周日 13 个、季度 4 个、日 31 个）。
+- `POST /quality/exports` 参数同上（类别字段为 `categories`），冻结导出已结束且随访宽限期已过的时间段；未结束或宽限期未结束的时间段不能冻结。
+
+每格返回 `headcount`（去重人数）、`appointments`（scheduled/fulfilled/no_show/cancelled 与履约率）和 `followups`（due/completed/deferred 与完成率），并随附 `window`（按诊所时区解释的 UTC 界）、`inclusion_rules` 与 `data_snapshot`（审计链序号、链头摘要与快照版本）。
+
+隐私保护规则：
+
+- 单元去重人数低于 `min_cell_count` 时整格抑制（`status: "suppressed"`），不返回任何计数，无法用两个类别或两种筛选相减还原小样本。
+- 指标的任一非零组成部分本身或其互补小于 `min_cell_delta` 时，该指标整组抑制（`suppressions[].reason = "complement_small"`），不发布履约/完成及其分量，防止用相邻筛选条件相减定位个体。
+- 时间段必须与日/周/月/季度对齐，不能通过平移一天等相邻窗口差分还原被抑制数量。
+- 占位预约（held）与已取消随访不计入分母；无计划、无法归因到类别的预约与随访在 `exclusions` 中说明，计数同样经过小数量门控。
+- 分母为零、随访宽限期未结束、时间段未结束分别给出 `nulls[].reason`（`no_scheduled_appointments`、`no_due_followups`、`followup_grace_open`、`period_not_closed`），空值与抑制含义不同。
+
+队列要求患者持有评估时仍有效的 `quality_aggregate` 授权；撤回授权后患者不进入此后的任何快照，重新签署更高版本授权后才可再次纳入。从未进入生效状态的计划不队列，已合并或关闭档案不队列。
+
+冻结导出把时间窗口、纳入规则、配置指纹和数据快照版本一并固化。之后的迟到更正、补录、授权撤回或门槛调整都不改变已导出结果；重复导出同一周期返回相同 `export_id` 且 `replayed: true`，不同分院各自复算同一周期、互不可见。规则变更后读取旧导出时附加 `advisories` 说明该格形成于另一套配置。所有配置变更和导出进入审计哈希链。
+
 ## 主要状态
 
 - 计划：草稿 → 提议 → 生效；可暂停和恢复，完成或取消后不能重新激活。

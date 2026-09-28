@@ -113,6 +113,28 @@ def create_handler(app: Careflow):
                 params = parse_qs(path.query)
                 return app.reports.incident_summary(clinic_id, actor_id,
                                                     params.get("start", [""])[0], params.get("end", [""])[0]), 200
+            if self.command == "GET" and segments == ["quality", "rules"]:
+                return app.quality.explain(clinic_id, actor_id), 200
+            if self.command == "GET" and segments == ["quality", "config"]:
+                return app.quality.get_config(clinic_id, actor_id), 200
+            if self.command == "POST" and segments == ["quality", "config"]:
+                data = self.body()
+                return app.quality.configure(clinic_id, actor_id,
+                                             min_cell_count=data.get("min_cell_count", 5),
+                                             min_cell_delta=data.get("min_cell_delta", 2),
+                                             followup_window_days=data.get("followup_window_days", 14)), 200
+            if self.command == "GET" and segments == ["quality", "aggregates"]:
+                params = parse_qs(path.query)
+                return app.quality.report(
+                    clinic_id, actor_id, granularity=params.get("granularity", ["month"])[0],
+                    start_date=params.get("start", [""])[0], end_date=params.get("end", [""])[0],
+                    categories=params.get("category", ["aesthetic", "weight"])), 200
+            if self.command == "POST" and segments == ["quality", "exports"]:
+                data = self.body()
+                return app.quality.report(
+                    clinic_id, actor_id, granularity=data.get("granularity", "month"),
+                    start_date=data.get("start", ""), end_date=data.get("end", ""),
+                    categories=data.get("categories", ["aesthetic", "weight"]), freeze=True), 201
             if self.command == "POST" and segments == ["patients"]:
                 data = self.body()
                 return app.create_patient(clinic_id, actor_id, data.get("external_ref", ""), data.get("name", ""),
