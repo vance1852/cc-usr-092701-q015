@@ -113,6 +113,17 @@ def create_handler(app: Careflow):
                 params = parse_qs(path.query)
                 return app.reports.incident_summary(clinic_id, actor_id,
                                                     params.get("start", [""])[0], params.get("end", [""])[0]), 200
+            if self.command == "POST" and segments == ["reports", "quality-snapshots"]:
+                return app.quality.create_or_get(clinic_id, actor_id, self.body()), 201
+            if self.command == "GET" and segments == ["reports", "quality-snapshots"]:
+                params = parse_qs(path.query)
+                year = params.get("year", [None])[0]
+                return app.quality.list_snapshots(
+                    clinic_id, actor_id, granularity=params.get("granularity", [None])[0],
+                    year=int(year) if year is not None else None,
+                    limit=int(params.get("limit", [100])[0])), 200
+            if self.command == "GET" and len(segments) == 3 and segments[:2] == ["reports", "quality-snapshots"]:
+                return app.quality.get_snapshot(clinic_id, actor_id, segments[2]), 200
             if self.command == "POST" and segments == ["patients"]:
                 data = self.body()
                 return app.create_patient(clinic_id, actor_id, data.get("external_ref", ""), data.get("name", ""),

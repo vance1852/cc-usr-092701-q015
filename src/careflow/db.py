@@ -11,7 +11,7 @@ from typing import Iterator
 
 from .errors import StorageFailure
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS staff (
     id TEXT PRIMARY KEY,
     clinic_id TEXT NOT NULL REFERENCES clinics(id),
     display_name TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('owner','clinician','nurse','coordinator','auditor')),
+    role TEXT NOT NULL CHECK(role IN ('owner','clinician','nurse','coordinator','auditor','quality_officer')),
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     created_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1
@@ -371,6 +371,44 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS audit_patient_sequence ON audit_events(patient_id,sequence);
 CREATE INDEX IF NOT EXISTS audit_aggregate ON audit_events(aggregate_type,aggregate_id,sequence);
+CREATE TABLE IF NOT EXISTS quality_snapshots (
+    id TEXT PRIMARY KEY,
+    clinic_id TEXT NOT NULL REFERENCES clinics(id),
+    granularity TEXT NOT NULL CHECK(granularity IN ('monthly','quarterly','yearly')),
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    threshold INTEGER NOT NULL CHECK(threshold BETWEEN 1 AND 1000),
+    rules_version TEXT NOT NULL,
+    format_version TEXT NOT NULL,
+    data_cutoff_at TEXT NOT NULL,
+    source_digest TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('finalized')),
+    request_hash TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_by TEXT NOT NULL REFERENCES staff(id),
+    created_at TEXT NOT NULL,
+    UNIQUE(clinic_id,granularity,period_start,period_end,threshold,rules_version)
+);
+CREATE INDEX IF NOT EXISTS quality_snapshots_clinic_period ON quality_snapshots(clinic_id,granularity,period_start);
+"""
+
+# v1 -> v2：staff.role 增加 quality_officer。SQLite 不能修改 CHECK 约束，
+# 须在关闭外键时重建表，由 RENAME 自动改写子表引用（SQLite 3.26+）。
+MIGRATION_V2_STAFF = """
+CREATE TABLE staff__v2 (
+    id TEXT PRIMARY KEY,
+    clinic_id TEXT NOT NULL REFERENCES clinics(id),
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('owner','clinician','nurse','coordinator','auditor','quality_officer')),
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    created_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO staff__v2(id,clinic_id,display_name,role,active,created_at,version)
+SELECT id,clinic_id,display_name,role,active,created_at,version FROM staff;
+DROP TABLE staff;
+ALTER TABLE staff__v2 RENAME TO staff;
+CREATE INDEX staff_clinic_role ON staff(clinic_id, role, active);
 """
 
 
@@ -398,6 +436,18 @@ class Database:
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         try:
             with self.session() as connection:
+                connection.execute("PRAGMA user_version")
+                connection.executescript(
+                    "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                row = connection.execute(
+                    "SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
+                current = int(row[0]) if row else 0
+                if current < 2:
+                    # 老库先迁移受限列，再补齐 v2 新表；新库 staff 已由 SCHEMA 建成 v2 形态。
+                    if current == 1:
+                        connection.execute("PRAGMA foreign_keys=OFF")
+                        connection.executescript(MIGRATION_V2_STAFF)
+                        connection.execute("PRAGMA foreign_keys=ON")
                 connection.executescript(SCHEMA)
                 connection.execute(
                     "INSERT INTO schema_meta(key,value) VALUES('schema_version',?) "
